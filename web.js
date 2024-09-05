@@ -1,16 +1,17 @@
-// server.js (추가된 부분 포함)
 require('dotenv').config();
 const express = require('express');
 const { MongoClient, ObjectId } = require('mongodb');
 const path = require('path');
 const { Parser } = require('json2csv');
-const cors = require('cors'); // CORS 미들웨어 추가
+const cors = require('cors');
 
 const app = express();
 const PORT = 3004;
 
 // CORS 허용 설정
-app.use(cors());
+app.use(cors({
+  origin: '*'  // 필요에 따라 특정 도메인으로 제한 가능
+}));
 
 const url = process.env.MONGODB_URI || 'mongodb://localhost:27017';
 const dbName = 'clicks';
@@ -18,11 +19,11 @@ let db;
 
 // MongoDB 연결
 MongoClient.connect(url, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then((client) => {
+  .then(client => {
     console.log('Connected to MongoDB');
     db = client.db(dbName);
   })
-  .catch((error) => {
+  .catch(error => {
     console.error('Failed to connect to MongoDB:', error);
     process.exit(1);
   });
@@ -32,6 +33,27 @@ app.use(express.json());
 
 // 정적 파일 제공
 app.use(express.static(path.join(__dirname, 'public')));
+
+// 페이지 뷰 처리 엔드포인트 추가
+app.post('/pageview', async (req, res) => {
+  const date = new Date().toISOString().split('T')[0];
+
+  try {
+    const statsCollection = db.collection('stats');
+
+    // 페이지 뷰 카운트 증가
+    await statsCollection.updateOne(
+      { date },
+      { $inc: { pageViews: 1 } },
+      { upsert: true }
+    );
+
+    res.status(200).json({ message: 'Page view counted', date });
+  } catch (error) {
+    console.error('Error recording page view:', error);
+    res.status(500).json({ message: 'Server error', error });
+  }
+});
 
 // 클릭 이벤트 처리
 app.post('/click', async (req, res) => {
@@ -54,6 +76,7 @@ app.post('/click', async (req, res) => {
 
     res.status(200).json({ message: 'Click counted', date });
   } catch (error) {
+    console.error('Error recording click:', error);
     res.status(500).json({ message: 'Server error', error });
   }
 });
@@ -86,6 +109,7 @@ app.get('/stats', async (req, res) => {
 
     res.status(200).json({ stats });
   } catch (error) {
+    console.error('Error fetching stats:', error);
     res.status(500).json({ message: 'Server error', error });
   }
 });
@@ -130,6 +154,7 @@ app.get('/download', async (req, res) => {
     res.attachment(`stats_data_${startDate}_to_${endDate}.csv`);
     res.send(csv);
   } catch (error) {
+    console.error('Error generating CSV:', error);
     res.status(500).json({ message: 'Server error', error });
   }
 });
