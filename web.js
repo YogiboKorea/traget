@@ -34,56 +34,69 @@ app.use(express.json());
 // 정적 파일 제공
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 페이지 뷰 처리 엔드포인트 추가
+// 페이지 뷰 처리 엔드포인트 (웹/모바일 구분)
 app.post('/pageview', async (req, res) => {
   const date = new Date().toISOString().split('T')[0];
+  const { type } = req.body; // 'web' 또는 'mobile'
+
+  if (!['web', 'mobile'].includes(type)) {
+    return res.status(400).json({ message: 'Invalid type, must be either "web" or "mobile".' });
+  }
 
   try {
     const statsCollection = db.collection('stats');
 
     // 페이지 뷰 카운트 증가
+    const updateField = type === 'web' ? { webViews: 1 } : { mobileViews: 1 };
+
     await statsCollection.updateOne(
       { date },
-      { $inc: { pageViews: 1 } },
+      { $inc: updateField },
       { upsert: true }
     );
 
-    res.status(200).json({ message: 'Page view counted', date });
+    res.status(200).json({ message: `${type.charAt(0).toUpperCase() + type.slice(1)} page view counted`, date });
   } catch (error) {
     console.error('Error recording page view:', error);
     res.status(500).json({ message: 'Server error', error });
   }
 });
 
-// 클릭 이벤트 처리
+// 클릭 이벤트 처리 (웹/모바일 구분)
 app.post('/click', async (req, res) => {
   const date = new Date().toISOString().split('T')[0];
-  const { buttonId } = req.body;
+  const { buttonId, type } = req.body; // 'web' 또는 'mobile'
+
+  if (!['web', 'mobile'].includes(type)) {
+    return res.status(400).json({ message: 'Invalid type, must be either "web" or "mobile".' });
+  }
 
   try {
     const statsCollection = db.collection('stats');
 
     // 클릭 카운트 증가
+    const updateField = type === 'web' ? { webClicks: 1 } : { mobileClicks: 1 };
+
     await statsCollection.updateOne(
       { date },
-      { $inc: { clicks: 1 } },
+      { $inc: updateField },
       { upsert: true }
     );
 
     // 클릭 기록 저장
     const clicksCollection = db.collection('clicks');
-    await clicksCollection.insertOne({ date, buttonId });
+    await clicksCollection.insertOne({ date, buttonId, type });
 
-    res.status(200).json({ message: 'Click counted', date });
+    res.status(200).json({ message: `${type.charAt(0).toUpperCase() + type.slice(1)} click counted`, date });
   } catch (error) {
     console.error('Error recording click:', error);
     res.status(500).json({ message: 'Server error', error });
   }
 });
 
-// 모든 클릭, 페이지 뷰 및 평균 방문 시간 조회
+// 모든 클릭, 페이지 뷰 및 평균 방문 시간 조회 (웹/모바일 구분)
 app.get('/stats', async (req, res) => {
-  const { startDate, endDate } = req.query;
+  const { startDate, endDate, type } = req.query;
   const query = {};
 
   if (startDate && endDate) {
@@ -91,6 +104,10 @@ app.get('/stats', async (req, res) => {
       $gte: startDate,
       $lte: endDate,
     };
+  }
+
+  if (type && !['web', 'mobile'].includes(type)) {
+    return res.status(400).json({ message: 'Invalid type, must be either "web" or "mobile".' });
   }
 
   try {
@@ -114,9 +131,13 @@ app.get('/stats', async (req, res) => {
   }
 });
 
-// 특정 날짜 범위의 데이터를 엑셀 파일로 다운로드
+// 특정 날짜 범위의 데이터를 엑셀 파일로 다운로드 (웹/모바일 구분)
 app.get('/download', async (req, res) => {
-  const { startDate, endDate } = req.query;
+  const { startDate, endDate, type } = req.query;
+
+  if (type && !['web', 'mobile'].includes(type)) {
+    return res.status(400).json({ message: 'Invalid type, must be either "web" or "mobile".' });
+  }
 
   try {
     const statsCollection = db.collection('stats');
@@ -142,8 +163,10 @@ app.get('/download', async (req, res) => {
     // 엑셀 (CSV) 파일 생성: 한글 헤더 사용
     const fields = [
       { label: '날짜', value: 'date' },
-      { label: '페이지 뷰', value: 'pageViews' },
-      { label: '이벤트 클릭 수', value: 'clicks' },
+      { label: '웹 페이지 뷰', value: 'webViews' },
+      { label: '모바일 페이지 뷰', value: 'mobileViews' },
+      { label: '웹 클릭 수', value: 'webClicks' },
+      { label: '모바일 클릭 수', value: 'mobileClicks' },
       { label: '평균 방문 시간 (초)', value: 'averageDuration' }
     ];
     const opts = { fields };
