@@ -1,0 +1,21 @@
+{
+  "name": "target",
+  "version": "1.0.0",
+  "main": "web.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "axios": "^1.7.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "json2csv": "^6.0.0-alpha.2",
+    "mongodb": "^6.8.0",
+    "nodemon": "^3.1.4",
+    "Parser": "^0.0.1"
+  }
+}
