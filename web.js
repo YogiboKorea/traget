@@ -65,7 +65,6 @@ app.post('/pageview', async (req, res) => {
     res.status(500).json({ message: 'Server error', error });
   }
 });
-
 // 세션 종료 및 체류 시간 기록
 app.post('/track-time', async (req, res) => {
   const { sessionId } = req.body;
@@ -81,7 +80,9 @@ app.post('/track-time', async (req, res) => {
       return res.status(404).json({ message: 'Session not found' });
     }
 
-    const duration = (exitTime - session.entryTime) / 1000; // 체류 시간 계산 (초 단위)
+    // 체류 시간 계산 (초 단위)
+    const duration = (exitTime.getTime() - new Date(session.entryTime).getTime()) / 1000;
+    
     await sessionsCollection.updateOne(
       { _id: new ObjectId(sessionId) },
       { $set: { exitTime, duration } }
@@ -93,6 +94,7 @@ app.post('/track-time', async (req, res) => {
     res.status(500).json({ message: 'Server error', error });
   }
 });
+
 
 
 // 모든 클릭, 페이지 뷰 및 평균 방문 시간 조회
