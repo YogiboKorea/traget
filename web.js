@@ -132,11 +132,12 @@ app.get('/stats', async (req, res) => {
   }
 });
 
-
+// 클릭 이벤트 처리
 app.post('/click', async (req, res) => {
   const date = new Date().toISOString().split('T')[0];
   const { buttonId, type } = req.body; // 'web' 또는 'mobile'
 
+  // 요청의 유효성을 검사하는 부분
   if (!['web', 'mobile'].includes(type) || !buttonId) {
     return res.status(400).json({ message: 'Invalid request: buttonId and type must be provided.' });
   }
