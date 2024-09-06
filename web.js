@@ -34,9 +34,10 @@ app.use(express.json());
 // 정적 파일 제공
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 페이지 뷰 처리 엔드포인트 (웹/모바일 구분)
+// 페이지 뷰 및 세션 시작 기록
 app.post('/pageview', async (req, res) => {
   const date = new Date().toISOString().split('T')[0];
+  const entryTime = new Date();
   const { type } = req.body; // 'web' 또는 'mobile'
 
   if (!['web', 'mobile'].includes(type)) {
@@ -45,56 +46,56 @@ app.post('/pageview', async (req, res) => {
 
   try {
     const statsCollection = db.collection('stats');
+    const sessionsCollection = db.collection('sessions');
 
     // 페이지 뷰 카운트 증가
     const updateField = type === 'web' ? { webViews: 1 } : { mobileViews: 1 };
-
     await statsCollection.updateOne(
       { date },
       { $inc: updateField },
       { upsert: true }
     );
 
-    res.status(200).json({ message: `${type.charAt(0).toUpperCase() + type.slice(1)} page view counted`, date });
+    // 방문 세션 기록
+    const session = await sessionsCollection.insertOne({ entryTime, date, type });
+
+    res.status(200).json({ message: 'Page view counted', date, sessionId: session.insertedId });
   } catch (error) {
     console.error('Error recording page view:', error);
     res.status(500).json({ message: 'Server error', error });
   }
 });
 
-// 클릭 이벤트 처리 (웹/모바일 구분)
-app.post('/click', async (req, res) => {
-  const date = new Date().toISOString().split('T')[0];
-  const { buttonId, type } = req.body; // 'web' 또는 'mobile'
-
-  if (!['web', 'mobile'].includes(type)) {
-    return res.status(400).json({ message: 'Invalid type, must be either "web" or "mobile".' });
-  }
+// 세션 종료 및 체류 시간 기록
+app.post('/track-time', async (req, res) => {
+  const { sessionId } = req.body;
+  const exitTime = new Date();
 
   try {
-    const statsCollection = db.collection('stats');
+    const sessionsCollection = db.collection('sessions');
 
-    // 클릭 카운트 증가
-    const updateField = type === 'web' ? { webClicks: 1 } : { mobileClicks: 1 };
+    // 세션 종료 시간과 체류 시간 계산
+    const session = await sessionsCollection.findOne({ _id: new ObjectId(sessionId) });
 
-    await statsCollection.updateOne(
-      { date },
-      { $inc: updateField },
-      { upsert: true }
+    if (!session) {
+      return res.status(404).json({ message: 'Session not found' });
+    }
+
+    const duration = (exitTime - session.entryTime) / 1000; // 체류 시간 계산 (초 단위)
+    await sessionsCollection.updateOne(
+      { _id: new ObjectId(sessionId) },
+      { $set: { exitTime, duration } }
     );
 
-    // 클릭 기록 저장
-    const clicksCollection = db.collection('clicks');
-    await clicksCollection.insertOne({ date, buttonId, type });
-
-    res.status(200).json({ message: `${type.charAt(0).toUpperCase() + type.slice(1)} click counted`, date });
+    res.status(200).json({ message: 'Exit recorded', sessionId, duration });
   } catch (error) {
-    console.error('Error recording click:', error);
+    console.error('Error recording exit time:', error);
     res.status(500).json({ message: 'Server error', error });
   }
 });
 
-// 모든 클릭, 페이지 뷰 및 평균 방문 시간 조회 (웹/모바일 구분)
+
+// 모든 클릭, 페이지 뷰 및 평균 방문 시간 조회
 app.get('/stats', async (req, res) => {
   const { startDate, endDate, type } = req.query;
   const query = {};
@@ -119,65 +120,14 @@ app.get('/stats', async (req, res) => {
 
     // 날짜별 평균 방문 시간 계산
     for (let stat of stats) {
-      const sessions = await sessionsCollection.find({ date: stat.date, exitTime: { $exists: true } }).toArray();
+      const sessions = await sessionsCollection.find({ date: stat.date, type: type, exitTime: { $exists: true } }).toArray();
       const totalDuration = sessions.reduce((sum, session) => sum + (session.duration || 0), 0);
-      stat.averageDuration = (sessions.length > 0) ? Math.round(totalDuration / sessions.length) : 0; // 평균 방문 시간 계산 및 정수로 변환
+      stat.averageDuration = (sessions.length > 0) ? Math.round(totalDuration / sessions.length) : 0; // 평균 방문 시간 계산
     }
 
     res.status(200).json({ stats });
   } catch (error) {
     console.error('Error fetching stats:', error);
-    res.status(500).json({ message: 'Server error', error });
-  }
-});
-
-// 특정 날짜 범위의 데이터를 엑셀 파일로 다운로드 (웹/모바일 구분)
-app.get('/download', async (req, res) => {
-  const { startDate, endDate, type } = req.query;
-
-  if (type && !['web', 'mobile'].includes(type)) {
-    return res.status(400).json({ message: 'Invalid type, must be either "web" or "mobile".' });
-  }
-
-  try {
-    const statsCollection = db.collection('stats');
-    const sessionsCollection = db.collection('sessions');
-    const query = {};
-
-    if (startDate && endDate) {
-      query.date = {
-        $gte: startDate,
-        $lte: endDate
-      };
-    }
-
-    const stats = await statsCollection.find(query).toArray();
-
-    // 날짜별 평균 방문 시간 계산
-    for (let stat of stats) {
-      const sessions = await sessionsCollection.find({ date: stat.date, exitTime: { $exists: true } }).toArray();
-      const totalDuration = sessions.reduce((sum, session) => sum + (session.duration || 0), 0);
-      stat.averageDuration = (sessions.length > 0) ? Math.round(totalDuration / sessions.length) : 0; // 평균 방문 시간 계산 및 정수로 변환
-    }
-
-    // 엑셀 (CSV) 파일 생성: 한글 헤더 사용
-    const fields = [
-      { label: '날짜', value: 'date' },
-      { label: '웹 페이지 뷰', value: 'webViews' },
-      { label: '모바일 페이지 뷰', value: 'mobileViews' },
-      { label: '웹 클릭 수', value: 'webClicks' },
-      { label: '모바일 클릭 수', value: 'mobileClicks' },
-      { label: '평균 방문 시간 (초)', value: 'averageDuration' }
-    ];
-    const opts = { fields };
-    const parser = new Parser(opts);
-    const csv = parser.parse(stats);
-
-    res.header('Content-Type', 'text/csv');
-    res.attachment(`stats_data_${startDate}_to_${endDate}.csv`);
-    res.send(csv);
-  } catch (error) {
-    console.error('Error generating CSV:', error);
     res.status(500).json({ message: 'Server error', error });
   }
 });
