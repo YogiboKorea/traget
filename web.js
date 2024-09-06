@@ -132,6 +132,38 @@ app.get('/stats', async (req, res) => {
   }
 });
 
+
+app.post('/click', async (req, res) => {
+  const date = new Date().toISOString().split('T')[0];
+  const { buttonId, type } = req.body; // 'web' 또는 'mobile'
+
+  if (!['web', 'mobile'].includes(type) || !buttonId) {
+    return res.status(400).json({ message: 'Invalid request: buttonId and type must be provided.' });
+  }
+
+  try {
+    const statsCollection = db.collection('stats');
+    const updateField = type === 'web' ? { webClicks: 1 } : { mobileClicks: 1 };
+
+    // 클릭 카운트 증가
+    await statsCollection.updateOne(
+      { date },
+      { $inc: updateField },
+      { upsert: true }
+    );
+
+    // 클릭 기록 저장
+    const clicksCollection = db.collection('clicks');
+    await clicksCollection.insertOne({ date, buttonId, type });
+
+    res.status(200).json({ message: `${type.charAt(0).toUpperCase() + type.slice(1)} click counted`, date });
+  } catch (error) {
+    console.error('Error recording click:', error);
+    res.status(500).json({ message: 'Server error', error });
+  }
+});
+
+
 // 서버 시작
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
