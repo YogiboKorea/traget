@@ -167,6 +167,58 @@ app.post('/click', async (req, res) => {
 });
 
 
+// 특정 날짜 범위의 데이터를 엑셀 파일로 다운로드
+app.get('/download', async (req, res) => {
+  const { startDate, endDate } = req.query;
+
+  if (!startDate || !endDate) {
+    return res.status(400).json({ message: 'Invalid request: startDate and endDate must be provided.' });
+  }
+
+  try {
+    const statsCollection = db.collection('stats');
+    const sessionsCollection = db.collection('sessions');
+    const query = {
+      date: {
+        $gte: startDate,
+        $lte: endDate,
+      },
+    };
+
+    const stats = await statsCollection.find(query).toArray();
+
+    // 날짜별 평균 방문 시간 계산
+    for (let stat of stats) {
+      const sessions = await sessionsCollection.find({ date: stat.date, exitTime: { $exists: true } }).toArray();
+      const totalDuration = sessions.reduce((sum, session) => sum + (session.duration || 0), 0);
+      stat.averageDuration = (sessions.length > 0) ? Math.round(totalDuration / sessions.length) : 0; // 평균 방문 시간 계산
+    }
+
+    // CSV 파일 생성
+    const fields = [
+      { label: '날짜', value: 'date' },
+      { label: '웹 페이지 뷰', value: 'webViews' },
+      { label: '모바일 페이지 뷰', value: 'mobileViews' },
+      { label: '웹 클릭 수', value: 'webClicks' },
+      { label: '모바일 클릭 수', value: 'mobileClicks' },
+      { label: '평균 방문 시간 (초)', value: 'averageDuration' },
+    ];
+    const opts = { fields };
+    const parser = new Parser(opts);
+    const csv = parser.parse(stats);
+
+    // CSV 파일 다운로드
+    res.header('Content-Type', 'text/csv');
+    res.attachment(`stats_data_${startDate}_to_${endDate}.csv`);
+    res.send(csv);
+  } catch (error) {
+    console.error('Error generating CSV:', error);
+    res.status(500).json({ message: 'Server error', error });
+  }
+});
+
+
+
 // 서버 시작
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
