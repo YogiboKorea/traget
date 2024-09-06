@@ -208,10 +208,10 @@ app.get('/download', async (req, res) => {
     const fields = [
       { label: '날짜', value: 'date' },
       { label: '웹 페이지 뷰', value: 'webViews' },
-      { label: '모바일 페이지 뷰', value: 'mobileViews' },
       { label: '웹 클릭 수', value: 'webClicks' },
+      { label: '웹 평균 방문 시간 (초)', value: 'averageWebDuration' },     
+      { label: '모바일 페이지 뷰', value: 'mobileViews' },    
       { label: '모바일 클릭 수', value: 'mobileClicks' },
-      { label: '웹 평균 방문 시간 (초)', value: 'averageWebDuration' },
       { label: '모바일 평균 방문 시간 (초)', value: 'averageMobileDuration' }
     ];
     const opts = { fields };
