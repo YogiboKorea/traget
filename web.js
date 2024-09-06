@@ -167,7 +167,7 @@ app.post('/click', async (req, res) => {
 });
 
 
-// 특정 날짜 범위의 데이터를 엑셀 파일로 다운로드
+// CSV 파일 다운로드 엔드포인트
 app.get('/download', async (req, res) => {
   const { startDate, endDate } = req.query;
 
@@ -207,16 +207,18 @@ app.get('/download', async (req, res) => {
     const parser = new Parser(opts);
     const csv = parser.parse(stats);
 
-    // CSV 파일 다운로드
-    res.header('Content-Type', 'text/csv');
+    // UTF-8 with BOM 추가
+    const bom = '\uFEFF'; // BOM (Byte Order Mark)
+    const csvWithBom = bom + csv;
+
+    res.header('Content-Type', 'text/csv; charset=UTF-8');
     res.attachment(`stats_data_${startDate}_to_${endDate}.csv`);
-    res.send(csv);
+    res.send(csvWithBom);
   } catch (error) {
     console.error('Error generating CSV:', error);
     res.status(500).json({ message: 'Server error', error });
   }
 });
-
 
 
 // 서버 시작
