@@ -96,8 +96,7 @@ app.post('/track-time', async (req, res) => {
 });
 
 
-
-// 모든 클릭, 페이지 뷰 및 평균 방문 시간 조회
+// 평균 방문 시간 계산 및 저장 (웹/모바일 구분)
 app.get('/stats', async (req, res) => {
   const { startDate, endDate, type } = req.query;
   const query = {};
@@ -122,9 +121,14 @@ app.get('/stats', async (req, res) => {
 
     // 날짜별 평균 방문 시간 계산
     for (let stat of stats) {
-      const sessions = await sessionsCollection.find({ date: stat.date, type: type, exitTime: { $exists: true } }).toArray();
-      const totalDuration = sessions.reduce((sum, session) => sum + (session.duration || 0), 0);
-      stat.averageDuration = (sessions.length > 0) ? Math.round(totalDuration / sessions.length) : 0; // 평균 방문 시간 계산
+      const webSessions = await sessionsCollection.find({ date: stat.date, type: 'web', exitTime: { $exists: true } }).toArray();
+      const mobileSessions = await sessionsCollection.find({ date: stat.date, type: 'mobile', exitTime: { $exists: true } }).toArray();
+
+      const totalWebDuration = webSessions.reduce((sum, session) => sum + (session.duration || 0), 0);
+      const totalMobileDuration = mobileSessions.reduce((sum, session) => sum + (session.duration || 0), 0);
+
+      stat.averageWebDuration = (webSessions.length > 0) ? Math.round(totalWebDuration / webSessions.length) : 0; // 웹 평균 방문 시간 계산
+      stat.averageMobileDuration = (mobileSessions.length > 0) ? Math.round(totalMobileDuration / mobileSessions.length) : 0; // 모바일 평균 방문 시간 계산
     }
 
     res.status(200).json({ stats });
@@ -167,53 +171,56 @@ app.post('/click', async (req, res) => {
 });
 
 
-// CSV 파일 다운로드 엔드포인트
 app.get('/download', async (req, res) => {
-  const { startDate, endDate } = req.query;
+  const { startDate, endDate, type } = req.query;
 
-  if (!startDate || !endDate) {
-    return res.status(400).json({ message: 'Invalid request: startDate and endDate must be provided.' });
+  if (type && !['web', 'mobile'].includes(type)) {
+    return res.status(400).json({ message: 'Invalid type, must be either "web" or "mobile".' });
   }
 
   try {
     const statsCollection = db.collection('stats');
     const sessionsCollection = db.collection('sessions');
-    const query = {
-      date: {
+    const query = {};
+
+    if (startDate && endDate) {
+      query.date = {
         $gte: startDate,
-        $lte: endDate,
-      },
-    };
+        $lte: endDate
+      };
+    }
 
     const stats = await statsCollection.find(query).toArray();
 
     // 날짜별 평균 방문 시간 계산
     for (let stat of stats) {
-      const sessions = await sessionsCollection.find({ date: stat.date, exitTime: { $exists: true } }).toArray();
-      const totalDuration = sessions.reduce((sum, session) => sum + (session.duration || 0), 0);
-      stat.averageDuration = (sessions.length > 0) ? Math.round(totalDuration / sessions.length) : 0; // 평균 방문 시간 계산
+      const webSessions = await sessionsCollection.find({ date: stat.date, type: 'web', exitTime: { $exists: true } }).toArray();
+      const mobileSessions = await sessionsCollection.find({ date: stat.date, type: 'mobile', exitTime: { $exists: true } }).toArray();
+
+      const totalWebDuration = webSessions.reduce((sum, session) => sum + (session.duration || 0), 0);
+      const totalMobileDuration = mobileSessions.reduce((sum, session) => sum + (session.duration || 0), 0);
+
+      stat.averageWebDuration = (webSessions.length > 0) ? Math.round(totalWebDuration / webSessions.length) : 0;
+      stat.averageMobileDuration = (mobileSessions.length > 0) ? Math.round(totalMobileDuration / mobileSessions.length) : 0;
     }
 
-    // CSV 파일 생성
+    // 엑셀 (CSV) 파일 생성: 한글 헤더 사용
     const fields = [
       { label: '날짜', value: 'date' },
       { label: '웹 페이지 뷰', value: 'webViews' },
       { label: '모바일 페이지 뷰', value: 'mobileViews' },
       { label: '웹 클릭 수', value: 'webClicks' },
       { label: '모바일 클릭 수', value: 'mobileClicks' },
-      { label: '평균 방문 시간 (초)', value: 'averageDuration' },
+      { label: '웹 평균 방문 시간 (초)', value: 'averageWebDuration' },
+      { label: '모바일 평균 방문 시간 (초)', value: 'averageMobileDuration' }
     ];
     const opts = { fields };
     const parser = new Parser(opts);
     const csv = parser.parse(stats);
 
-    // UTF-8 with BOM 추가
-    const bom = '\uFEFF'; // BOM (Byte Order Mark)
-    const csvWithBom = bom + csv;
-
-    res.header('Content-Type', 'text/csv; charset=UTF-8');
-    res.attachment(`stats_data_${startDate}_to_${endDate}.csv`);
-    res.send(csvWithBom);
+    res.header('Content-Type', 'text/csv; charset=utf-8');
+    res.header('Content-Disposition', `attachment; filename="stats_data_${startDate}_to_${endDate}.csv"`);
+    res.send(Buffer.from('\uFEFF' + csv, 'utf8')); // UTF-8 BOM 추가
   } catch (error) {
     console.error('Error generating CSV:', error);
     res.status(500).json({ message: 'Server error', error });
